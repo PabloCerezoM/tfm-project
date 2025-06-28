@@ -1,8 +1,9 @@
 import gradio as gr
-from langgraph_agent import process_command
+from agents.agent_core import process_command
 
 def chat_interface(message):
-    return process_command(message)
+    result = process_command(message)
+    return result["result"]
 
 iface = gr.Interface(
     fn=chat_interface,

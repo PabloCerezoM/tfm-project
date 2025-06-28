@@ -1,6 +1,7 @@
 import json
+import os
 
-MEMORY_FILE = "user_interests.json"
+MEMORY_FILE = os.path.join(os.path.dirname(__file__), '..', 'data', 'user_interests.json')
 
 def load_interests():
     try:
