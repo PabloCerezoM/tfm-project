@@ -7,9 +7,9 @@ def chat_interface(message):
 
 iface = gr.Interface(
     fn=chat_interface,
-    inputs=gr.Textbox(lines=2, placeholder="Escribe un comando: Añade IA, Muéstrame noticias..."),
+    inputs=gr.Textbox(lines=2, placeholder="Type a command: Add AI, Show me news..."),
     outputs="text",
-    title="Agente de Noticias Personalizado"
+    title="Personalized News Agent"
 )
 
 def launch():

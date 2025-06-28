@@ -1,7 +1,10 @@
 def parse_command(message, llm=None):
+    
     """
-    Interpreta el mensaje del usuario y determina la acción y los parámetros.
-    Si se provee un LLM, se usa para mayor robustez.
+    Parses a user command to determine the action to take.
+    Args:
+        message (str): The user command message.
+        llm (Optional[ChatOpenAI]): An optional language model for advanced parsing.
     """
     if llm:
         system_prompt = (

@@ -20,7 +20,10 @@ def is_news_about_interest(llm, noticia, intereses):
     return False, content
 
 def tool_fetch_news(input_dict, llm):
-    """Filtra y devuelve noticias relevantes según los intereses del usuario usando el LLM."""
+    """
+    Fetches news articles and filters them based on the user's interests.
+    Returns a list of relevant news articles.
+    """
     interests = load_interests()
     news = fetch_news(page_size=15, language="en")
     filtered = []
@@ -31,7 +34,7 @@ def tool_fetch_news(input_dict, llm):
             filtered.append(n)
             details.append(f"- {n['title']} ({info.strip()})")
     if filtered:
-        result = "Noticias relevantes:\n" + "\n".join(details)
+        result = "Relevant news:\n" + "\n".join(details)
     else:
-        result = "No hay noticias para tus intereses actuales."
+        result = "There's no relevant news for your current interests."
     return {"result": result}

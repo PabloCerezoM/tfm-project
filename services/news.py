@@ -7,7 +7,7 @@ NEWS_API_KEY = os.environ.get("NEWS_API_KEY")
 
 def fetch_news(page_size=15, language="en"):
     """
-    Devuelve titulares recientes (no filtrados por tema).
+    Returns recent headlines (not filtered by topic).
     """
     url = "https://newsapi.org/v2/top-headlines"
     params = {
@@ -18,7 +18,7 @@ def fetch_news(page_size=15, language="en"):
     resp = requests.get(url, params=params)
     data = resp.json()
     if data.get("status") != "ok":
-        print("[DEBUG] Error en la News API:", data)
+        print("[DEBUG] Error in the News API:", data)
         return []
     news = []
     for a in data.get("articles", []):

@@ -28,4 +28,4 @@ def process_command(message):
     elif action == "fetch_news":
         return tool_fetch_news(command, llm)
     else:
-        return {"result": "No entendí el comando. Por favor, intenta de nuevo."}
+        return {"result": "I didn't understand the command. Please try again."}
