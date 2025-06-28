@@ -1,40 +1,87 @@
-from services.memory import load_interests, add_interest
+from newspaper import Article
+
+from agents.state_types import State
+from services.memory import load_interests, add_interest, remove_interest
 from services.news import fetch_news
 
-def tool_store_interest(input_dict):
-    """Adds an interest to the user's memory."""
-    interest = input_dict["interest"]
-    add_interest(interest)
-    return {"result": f"Interés '{interest}' añadido. Intereses actuales: {load_interests()}"}
+def summarize_article(llm, url):
+    try:
+        article = Article(url)
+        article.download()
+        article.parse()
+        text = article.text
+        if not text:
+            return None
+        prompt = [
+            {"role": "system", "content": "Summarize the following news article in 2-3 sentences:"},
+            {"role": "user", "content": text},
+        ]
+        result = llm.invoke(prompt)
+        summary = result.content.strip()
+        return summary
+    except Exception:
+        return None
 
-def is_news_about_interest(llm, noticia, intereses):
-    intereses_str = ', '.join(intereses)
+def tool_store_interest_node(state: State) -> State:
+    interest = state.get("interest")
+    if interest:
+        add_interest(interest)
+        state["result"] = f"Interest '{interest}' added. Current interests: {load_interests()}"
+    else:
+        state["result"] = "No interest detected to add."
+    return state
+
+def is_news_about_interest(llm, article, interests):
+    interests_str = ', '.join(interests)
     prompt = [
-        {"role": "system", "content": f"Eres un asistente que determina si una noticia está relacionada con alguno de los siguientes intereses de usuario: {intereses_str}.\nResponde SOLO 'sí' o 'no', y si 'sí', indica con qué interés(s)."},
-        {"role": "user", "content": f"NOTICIA:\nTítulo: {noticia['title']}\nContenido: {noticia['content']}"}
+        {"role": "system", "content": f"You are an assistant that determines if a news article is related to any of the following user interests: {interests_str}.\nRespond ONLY with 'yes' or 'no', and if 'yes', indicate which interest(s)."},
+        {"role": "user", "content": f"NEWS:\nTitle: {article['title']}\nContent: {article['content']}"}
     ]
     res = llm.invoke(prompt)
     content = res.content.lower()
-    if "yes" in content or "sí" in content or "si" in content:
+    if "yes" in content:
         return True, content
     return False, content
 
-def tool_fetch_news(input_dict, llm):
-    """
-    Fetches news articles and filters them based on the user's interests.
-    Returns a list of relevant news articles.
-    """
+def tool_fetch_news_node(llm):
+    def node(state: State) -> State:
+        interests = load_interests()
+        news = fetch_news(page_size=10, language="en")
+        details = []
+        for n in news:
+            match, _ = is_news_about_interest(llm, n, interests)
+            if match and n["url"]:
+                summary = summarize_article(llm, n["url"])
+                # Use the API description as a fallback
+                if not summary and n["content"]:
+                    summary = n["content"]
+                if summary:
+                    details.append(f"**[{n['title']}]({n['url']})**\n{summary}\n")
+                else:
+                    details.append(f"**[{n['title']}]({n['url']})**\n(Summary not available)\n")
+        if details:
+            state["result"] = "\n---\n".join(details)
+        else:
+            state["result"] = "There is no news for your current interests."
+        return state
+    return node
+
+def tool_list_interests_node(state: State) -> State:
     interests = load_interests()
-    news = fetch_news(page_size=15, language="en")
-    filtered = []
-    details = []
-    for n in news:
-        match, info = is_news_about_interest(llm, n, interests)
-        if match:
-            filtered.append(n)
-            details.append(f"- {n['title']} ({info.strip()})")
-    if filtered:
-        result = "Relevant news:\n" + "\n".join(details)
+    if interests:
+        state["result"] = "Your current interests: " + ", ".join(interests)
     else:
-        result = "There's no relevant news for your current interests."
-    return {"result": result}
+        state["result"] = "You have no interests stored."
+    return state
+
+def tool_remove_interest_node(state: State) -> State:
+    interest = state.get("interest")
+    if interest:
+        removed = remove_interest(interest)
+        if removed:
+            state["result"] = f"Interest '{interest}' removed. Current interests: {load_interests()}"
+        else:
+            state["result"] = f"Interest '{interest}' not found in your current interests."
+    else:
+        state["result"] = "No interest detected to remove."
+    return state

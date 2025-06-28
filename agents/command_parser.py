@@ -1,41 +1,41 @@
-def parse_command(message, llm=None):
-    
+from agents.state_types import State
+
+
+def parse_command_node(llm):
     """
-    Parses a user command to determine the action to take.
-    Args:
-        message (str): The user command message.
-        llm (Optional[ChatOpenAI]): An optional language model for advanced parsing.
+    Returns a node that uses the LLM to parse the user's command.
     """
-    if llm:
+    def node(state: State) -> State:
+        message = state["user_input"]
         system_prompt = (
             "You are an assistant that interprets user commands about interests and news.\n"
             "If the message is to add an interest, reply as follows:\n"
             '{"action": "store_interest", "interest": "<INTEREST>"}\n'
+            "If the message is to remove/delete an interest, reply as follows:\n"
+            '{"action": "remove_interest", "interest": "<INTEREST>"}\n'
+            "If the message is to list interests, reply as follows:\n"
+            '{"action": "list_interests"}\n'
             "If the message is to show news, reply as follows:\n"
             '{"action": "fetch_news"}\n'
-            "Example: input = 'Add IA' -> output = {'action': 'store_interest', 'interest': 'IA'}"
+            "Examples:\n"
+            " - input = 'Add AI' -> output = {'action': 'store_interest', 'interest': 'AI'}\n"
+            " - input = 'Remove IA' -> output = {'action': 'remove_interest', 'interest': 'IA'}\n"
+            " - input = 'Show interests' -> output = {'action': 'list_interests'}"
         )
         prompt = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": message},
         ]
+        import ast
         try:
             result = llm.invoke(prompt)
-            # Normaliza la salida a un dict seguro
-            import ast
-            out = result.content.strip()
-            if out.startswith("{") and out.endswith("}"):
-                return ast.literal_eval(out)
+            content = result.content.strip()
+            if content.startswith("{") and content.endswith("}"):
+                parsed = ast.literal_eval(content)
+                state.update(parsed)
+            else:
+                state["action"] = "unknown"
         except Exception:
-            pass  # Si falla, prueba heurística básica abajo
-
-    # Parseo básico si no hay LLM o si falla
-    message_lower = message.lower()
-    if "añade" in message_lower or "add" in message_lower:
-        words = message.split()
-        interest = words[-1] if len(words) > 1 else "IA"
-        return {"action": "store_interest", "interest": interest}
-    elif "muestra" in message_lower or "show" in message_lower or "noticias" in message_lower or "news" in message_lower:
-        return {"action": "fetch_news"}
-    else:
-        return {"action": "unknown"}
+            state["action"] = "unknown"
+        return state
+    return node
