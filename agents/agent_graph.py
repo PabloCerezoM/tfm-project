@@ -6,8 +6,8 @@ from langgraph.graph import StateGraph, END
 from agents.state_types import State
 from agents.command_parser import parse_command_node
 from agents.tools import (
-    tool_store_interest_node, 
-    tool_fetch_news_node, 
+    tool_fetch_news_node_stream,
+    tool_store_interest_node,
     tool_list_interests_node, 
     tool_remove_interest_node
 )
@@ -44,7 +44,7 @@ graph.add_node("parse_command", make_node(parse_command_node(llm), "parse_comman
 graph.add_node("list_interests", make_node(tool_list_interests_node, "list_interests"))
 graph.add_node("remove_interest", make_node(tool_remove_interest_node, "remove_interest"))
 graph.add_node("store_interest", make_node(tool_store_interest_node, "store_interest"))
-graph.add_node("fetch_news", make_node(tool_fetch_news_node(llm), "fetch_news"))
+graph.add_node("fetch_news", make_node(tool_fetch_news_node_stream(llm), "fetch_news"))
 graph.add_node("final_output", make_node(lambda state: {
     "output": state.get("result", "Error"),
     "visited_nodes": state.get("visited_nodes", [])
@@ -85,7 +85,12 @@ graph.set_entry_point("parse_command")
 
 my_graph = graph.compile()
 
-def process_command(message: str) -> State:
+def process_command(message: str):
     inputs: State = {"user_input": message}
     result = my_graph.invoke(inputs)
-    return result
+    # Si el resultado es un generador, propágalo
+    if hasattr(result, "__iter__") and not isinstance(result, dict):
+        for partial in result:
+            yield partial
+    else:
+        yield result["output"]

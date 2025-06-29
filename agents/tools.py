@@ -4,23 +4,26 @@ from agents.state_types import State
 from services.memory import load_interests, add_interest, remove_interest
 from services.news import fetch_news
 
-def summarize_article(llm, url):
+def summarize_article_stream(llm, url):
     try:
         article = Article(url)
         article.download()
         article.parse()
         text = article.text
         if not text:
-            return None
+            yield None
+            return
         prompt = [
-            {"role": "system", "content": "Summarize the following news article in 2-3 sentences:"},
+            {"role": "system", "content": "Summarize the following news article in 3-4 sentences:"},
             {"role": "user", "content": text},
         ]
-        result = llm.invoke(prompt)
-        summary = result.content.strip()
-        return summary
+        summary = ""
+        for chunk in llm.stream(prompt):
+            summary += chunk.content
+            yield summary
     except Exception:
-        return None
+        yield None
+
 
 def tool_store_interest_node(state: State) -> State:
     interest = state.get("interest")
@@ -43,28 +46,32 @@ def is_news_about_interest(llm, article, interests):
         return True, content
     return False, content
 
-def tool_fetch_news_node(llm):
-    def node(state: State) -> State:
+def tool_fetch_news_node_stream(llm):
+    def node(state: State):
         interests = load_interests()
-        news = fetch_news(page_size=10, language="en")
+        news = fetch_news(page_size=5, language="en")
         details = []
+        found_any = False
+
         for n in news:
             match, _ = is_news_about_interest(llm, n, interests)
             if match and n["url"]:
-                summary = summarize_article(llm, n["url"])
-                # Use the API description as a fallback
-                if not summary and n["content"]:
-                    summary = n["content"]
-                if summary:
-                    details.append(f"**[{n['title']}]({n['url']})**\n{summary}\n")
-                else:
-                    details.append(f"**[{n['title']}]({n['url']})**\n(Summary not available)\n")
-        if details:
-            state["result"] = "\n---\n".join(details)
-        else:
-            state["result"] = "There is no news for your current interests."
-        return state
+                found_any = True
+                title_link = f"**[{n['title']}]({n['url']})**\n"
+                # Streaming summary
+                summary_stream = summarize_article_stream(llm, n["url"])
+                summary_accum = ""
+                for partial in summary_stream:
+                    if partial is None:
+                        yield title_link + "(Could not summarize this article)\n"
+                        break
+                    summary_accum = partial
+                    yield title_link + summary_accum + "\n"
+                yield "---\n"
+        if not found_any:
+            yield "There is no news for your current interests."
     return node
+
 
 def tool_list_interests_node(state: State) -> State:
     interests = load_interests()
