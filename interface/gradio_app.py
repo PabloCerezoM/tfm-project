@@ -1,30 +1,19 @@
 import gradio as gr
-from agents.agent_graph import process_command
+from agents.agent_graph import process_command, process_command_stream
 
 def chat_interface(message):
     result = process_command(message)
-    visited = result.get("visited_nodes", [])
-    # Markdown diagram with emoji
-    nodes_list = [
-        "parse_command",
-        "store_interest",
-        "fetch_news",
-        "final_output"
-    ]
-    diagram = ""
-    for node in nodes_list:
-        if node in visited:
-            diagram += f"**➡️ {node}**\n\n"
-        else:
-            diagram += f"{node}\n\n"
-    return result["output"], diagram
+    return result["output"]
+
+def chat_interface_stream(message):
+    for partial, _ in process_command_stream(message):
+        yield partial
 
 iface = gr.Interface(
-    fn=chat_interface,
+    fn=chat_interface_stream,
     inputs=gr.Textbox(lines=2, placeholder="Type a command: Add AI, Show me news..."),
     outputs=[
-        gr.Markdown(label="Agent Response"),
-        gr.Markdown(label="Graph Node Path")
+        gr.Textbox(label="Agent Response", lines=8, interactive=False)
     ],
     title="Personalized News Agent"
 )

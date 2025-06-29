@@ -1,4 +1,5 @@
 from newspaper import Article
+from typing import Generator
 
 from agents.state_types import State
 from services.memory import load_interests, add_interest, remove_interest
@@ -21,6 +22,29 @@ def summarize_article(llm, url):
         return summary
     except Exception:
         return None
+
+def summarize_article_stream(llm, url) -> Generator[str, None, None]:
+    try:
+        article = Article(url)
+        article.download()
+        article.parse()
+        text = article.text
+        if not text:
+            yield None
+            return
+        prompt = [
+            {"role": "system", "content": "Summarize the following news article in 2-3 sentences:"},
+            {"role": "user", "content": text},
+        ]
+        stream = llm.stream(prompt)
+        summary = ""
+        for chunk in stream:
+            token = getattr(chunk, 'content', None)
+            if token:
+                summary += token
+                yield summary
+    except Exception:
+        yield None
 
 def tool_store_interest_node(state: State) -> State:
     interest = state.get("interest")

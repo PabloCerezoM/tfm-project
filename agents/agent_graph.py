@@ -9,8 +9,11 @@ from agents.tools import (
     tool_store_interest_node, 
     tool_fetch_news_node, 
     tool_list_interests_node, 
-    tool_remove_interest_node
+    tool_remove_interest_node,
+    summarize_article_stream
 )
+from services.news import fetch_news
+from agents.tools import is_news_about_interest, summarize_article_stream
 
 def add_visited_node(state: State, node_name: str) -> State:
     if "visited_nodes" not in state or state["visited_nodes"] is None:
@@ -36,7 +39,7 @@ llm = ChatOpenAI(
     max_tokens=2048,
     temperature=0.7,
     top_p=0.9,
-    streaming=False,
+    streaming=True,  # Habilitar streaming
 )
 
 graph = StateGraph(State)
@@ -88,3 +91,38 @@ def process_command(message: str) -> State:
     inputs: State = {"user_input": message}
     result = my_graph.invoke(inputs)
     return result
+
+def process_command_stream(message: str):
+    """
+    Si la acción es fetch_news, hace streaming de los resúmenes de noticias.
+    Para el resto de acciones, devuelve solo el resultado final.
+    """
+    inputs: State = {"user_input": message}
+    result = my_graph.invoke(inputs)
+    visited = result.get("visited_nodes", [])
+    action = result.get("action")
+    if action == "fetch_news":
+        from services.memory import load_interests
+        from services.news import fetch_news
+        from agents.tools import is_news_about_interest, summarize_article_stream
+        interests = load_interests()
+        news = fetch_news(page_size=10, language="en")
+        any_found = False
+        accumulated = ""
+        for n in news:
+            match, _ = is_news_about_interest(llm, n, interests)
+            if match and n["url"]:
+                any_found = True
+                summary = ""
+                for partial in summarize_article_stream(llm, n["url"]):
+                    if partial:
+                        summary = partial
+                        formatted = f"**[{n['title']}]({n['url']})**\n{summary}\n\n"
+                        yield accumulated + formatted, visited + ["fetch_news"]
+                formatted = f"**[{n['title']}]({n['url']})**\n{summary}\n\n"
+                accumulated += formatted
+        if not any_found:
+            yield "There is no news for your current interests.", visited + ["fetch_news"]
+    else:
+        output = result.get("result") or result.get("output") or ""
+        yield output, visited
