@@ -80,7 +80,6 @@ graph.add_edge("fetch_news", "final_output")
 graph.add_edge("list_interests", "final_output")
 graph.add_edge("remove_interest", "final_output")
 graph.add_edge("final_output", END)
-# graph.add_edge("start", "parse_command")   # <--- ESTA ES LA CLAVE
 graph.set_entry_point("parse_command")
 
 my_graph = graph.compile()
