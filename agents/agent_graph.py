@@ -98,14 +98,33 @@ def process_command_stream(message: str):
     Si la acción es fetch_news, hace streaming de los resúmenes de noticias.
     Para el resto de acciones, devuelve solo el resultado final.
     """
+    from agents.command_parser import parse_command_node
+    from agents.tools import tool_store_interest_node, tool_fetch_news_node, tool_list_interests_node, tool_remove_interest_node, summarize_article_stream, is_news_about_interest
+    from services.memory import load_interests
+    from services.news import fetch_news
+    from concurrent.futures import ThreadPoolExecutor
+
     inputs: State = {"user_input": message}
-    result = my_graph.invoke(inputs)
-    visited = result.get("visited_nodes", [])
-    action = result.get("action")
-    if action == "fetch_news":
-        from services.memory import load_interests
-        from services.news import fetch_news
-        from agents.tools import is_news_about_interest, summarize_article_stream
+    state = inputs
+    # Paso 1: parse_command
+    state = add_visited_node(state, "parse_command")
+    state = parse_command_node(llm)(state)
+    visited = state.get("visited_nodes", []).copy()
+    yield "Procesando...", visited
+    action = state.get("action")
+    if action == "store_interest":
+        state = add_visited_node(state, "store_interest")
+        state = tool_store_interest_node(state)
+        visited = state.get("visited_nodes", []).copy()
+        yield "Guardando interés...", visited
+        state = add_visited_node(state, "final_output")
+        output = state.get("result", "")
+        visited = state.get("visited_nodes", []).copy()
+        yield output, visited
+    elif action == "fetch_news":
+        state = add_visited_node(state, "fetch_news")
+        visited = state.get("visited_nodes", []).copy()
+        yield "Buscando noticias...", visited
         interests = load_interests()
         news = fetch_news(page_size=10, language="en")
         any_found = False
@@ -128,6 +147,30 @@ def process_command_stream(message: str):
                 accumulated += formatted
         if not any_found:
             yield "There is no news for your current interests.", visited + ["fetch_news"]
+        state = add_visited_node(state, "final_output")
+        output = state.get("result", "")
+        visited = state.get("visited_nodes", []).copy()
+        yield output, visited
+    elif action == "list_interests":
+        state = add_visited_node(state, "list_interests")
+        state = tool_list_interests_node(state)
+        visited = state.get("visited_nodes", []).copy()
+        yield "Listando intereses...", visited
+        state = add_visited_node(state, "final_output")
+        output = state.get("result", "")
+        visited = state.get("visited_nodes", []).copy()
+        yield output, visited
+    elif action == "remove_interest":
+        state = add_visited_node(state, "remove_interest")
+        state = tool_remove_interest_node(state)
+        visited = state.get("visited_nodes", []).copy()
+        yield "Eliminando interés...", visited
+        state = add_visited_node(state, "final_output")
+        output = state.get("result", "")
+        visited = state.get("visited_nodes", []).copy()
+        yield output, visited
     else:
-        output = result.get("result") or result.get("output") or ""
+        state = add_visited_node(state, "final_output")
+        output = state.get("result", "")
+        visited = state.get("visited_nodes", []).copy()
         yield output, visited
