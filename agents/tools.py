@@ -1,5 +1,6 @@
 from newspaper import Article
 from typing import Generator
+from concurrent.futures import ThreadPoolExecutor
 
 from agents.state_types import State
 from services.memory import load_interests, add_interest, remove_interest
@@ -14,7 +15,7 @@ def summarize_article(llm, url):
         if not text:
             return None
         prompt = [
-            {"role": "system", "content": "Summarize the following news article in 2-3 sentences:"},
+            {"role": "system", "content": "Summarize the following news article in 2-3 sentences. Respond only with the summary:"},
             {"role": "user", "content": text},
         ]
         result = llm.invoke(prompt)
@@ -33,8 +34,8 @@ def summarize_article_stream(llm, url) -> Generator[str, None, None]:
             yield None
             return
         prompt = [
-            {"role": "system", "content": "Summarize the following news article in 2-3 sentences:"},
-            {"role": "user", "content": text},
+            # {"role": "system", "content": "Summarize the following news article in 2-3 sentences:"},
+            {"role": "user", "content": f"Summarize the following news article in 2-3 sentences, and only output the summary:\n{text}"},
         ]
         stream = llm.stream(prompt)
         summary = ""
@@ -72,8 +73,12 @@ def tool_fetch_news_node(llm):
         interests = load_interests()
         news = fetch_news(page_size=10, language="en")
         details = []
-        for n in news:
+        def check_match(n):
             match, _ = is_news_about_interest(llm, n, interests)
+            return (n, match)
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            results = list(executor.map(check_match, news))
+        for n, match in results:
             if match and n["url"]:
                 summary = summarize_article(llm, n["url"])
                 # Use the API description as a fallback

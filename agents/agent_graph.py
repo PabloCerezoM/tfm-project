@@ -14,6 +14,7 @@ from agents.tools import (
 )
 from services.news import fetch_news
 from agents.tools import is_news_about_interest, summarize_article_stream
+from concurrent.futures import ThreadPoolExecutor
 
 def add_visited_node(state: State, node_name: str) -> State:
     if "visited_nodes" not in state or state["visited_nodes"] is None:
@@ -109,8 +110,12 @@ def process_command_stream(message: str):
         news = fetch_news(page_size=10, language="en")
         any_found = False
         accumulated = ""
-        for n in news:
+        def check_match(n):
             match, _ = is_news_about_interest(llm, n, interests)
+            return (n, match)
+        with ThreadPoolExecutor() as executor:
+            results = list(executor.map(check_match, news))
+        for n, match in results:
             if match and n["url"]:
                 any_found = True
                 summary = ""
