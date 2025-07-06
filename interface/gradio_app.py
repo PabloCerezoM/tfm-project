@@ -37,11 +37,12 @@ with gr.Blocks() as demo:
     gr.Markdown("# Personalized News Agent")
     with gr.Row():
         with gr.Column():
-            gr.Markdown("**Nodes visited:**")
-            nodos_out = gr.Markdown(label="Nodes visited")
+            with gr.Accordion("Visited nodes", open=False):
+                nodos_out = gr.Markdown(label="Nodes visited")
         with gr.Column():
-            gr.Markdown("**News filter:**")
-            news_out = gr.Markdown(label="News Headlines")
+            with gr.Accordion("News filter", open=False):
+                gr.Markdown("**News filter:**")
+                news_out = gr.Markdown(label="News Headlines")
         with gr.Column():
             gr.Markdown("**Agent Response:**")
             chat_out = gr.Markdown(label="Agent Response")
