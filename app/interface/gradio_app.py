@@ -52,6 +52,6 @@ with gr.Blocks() as demo:
     send_btn.click(chat_interface_stream, inputs=chat_in, outputs=[nodos_out, chat_out, news_out])
 
 def launch():
-    demo.launch()
+    demo.launch(server_name="0.0.0.0")
 
 

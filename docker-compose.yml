@@ -1,36 +1,13 @@
-version: '3.8'
-
 services:
-  # vllm-server:
-  #   image: vllm/vllm-openai:v0.8.1
-  #   runtime: nvidia
-  #   ports:
-  #     - "8833:8000"
-  #   environment:
-  #     HUGGING_FACE_HUB_TOKEN: ${HUGGINGFACE_HUB_TOKEN}
-  #     API_KEY: ${API_KEY}
-  #     CUDA_VISIBLE_DEVICES: 0
-  #     CUDA_DEVICE_ORDER: PCI_BUS_ID
-  #   command: >
-  #     --model ${MODEL_ID}
-  #     --gpu-memory-utilization 0.9
-  #     --max-model-len 2048
-  #     --port 8000
-  #   deploy:
-  #     resources:
-  #       reservations:
-  #         devices:
-  #           - capabilities: [gpu]
-  #   ipc: host
-
-  server:
-    build: ./server
+  app:
+    build: ./app
     ports:
-      - "8000:8000"
-    environment:
-      SERVER_URL: ${SERVER_URL}
-      API_KEY: ${API_KEY}
-
+      - "7860:7860"
+    env_file:
+      - .env
+    volumes:
+      - ./app/data:/app/data
+    command: ["python", "main.py"]
 
   # To-Do: Crear un servicio con tu servidor. Debe tener:
   # - Los ficheros de Python necesarios para tu servidor.
