@@ -1,0 +1,9 @@
+gradio
+python-dotenv
+requests
+langchain
+langchain-openai
+langgraph
+typing
+newspaper3k
+lxml[html_clean]
