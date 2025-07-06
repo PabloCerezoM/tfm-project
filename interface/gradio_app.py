@@ -46,7 +46,7 @@ with gr.Blocks() as demo:
         with gr.Column():
             gr.Markdown("**Agent Response:**")
             chat_out = gr.Markdown(label="Agent Response")
-    chat_in = gr.Textbox(lines=2, placeholder="Type a command: Add something to my interests, Show me news...", label='What do you want?')
+    chat_in = gr.Textbox(lines=1, placeholder="Type a command: Add something to my interests, Show me news...", label='What do you want?')
     send_btn = gr.Button("Send", variant='primary')
 
     send_btn.click(chat_interface_stream, inputs=chat_in, outputs=[nodos_out, chat_out, news_out])
