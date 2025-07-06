@@ -41,7 +41,7 @@ with gr.Blocks() as demo:
                 nodos_out = gr.Markdown(label="Nodes visited")
         with gr.Column():
             with gr.Accordion("News filter", open=False):
-                gr.Markdown("**News filter:**")
+                gr.Markdown()
                 news_out = gr.Markdown(label="News Headlines")
         with gr.Column():
             gr.Markdown("**Agent Response:**")
