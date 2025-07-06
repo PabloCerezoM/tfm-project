@@ -6,11 +6,13 @@ def chat_interface(message):
     result = process_command(message)
     return result["output"]
 
-# Modificada para devolver también los nodos visitados
+# Modificada para devolver también los nodos visitados y titulares
+# El nuevo output será: nodos, respuesta, titulares filtrados
 def chat_interface_stream(message):
     last_partial = ""
     last_nodos = ""
-    for partial, visited in process_command_stream(message):
+    last_news = ""
+    for partial, visited, news_info in process_command_stream(message):
         # Formatea los nodos en una sola línea, separados por flechas
         if visited:
             nodos = ' → '.join(str(n) for n in visited)
@@ -18,9 +20,10 @@ def chat_interface_stream(message):
             nodos = ''
         last_partial = partial if partial else last_partial
         last_nodos = nodos if nodos else last_nodos
-        yield nodos + " ⏳", partial
+        last_news = news_info if news_info else last_news
+        yield nodos + " ⏳", partial, news_info
     # Al finalizar, asegúrate de mostrar el último contenido válido
-    yield last_nodos, last_partial
+    yield last_nodos, last_partial, last_news
 
 # Nueva función para mostrar intereses
 def mostrar_intereses():
@@ -34,19 +37,18 @@ with gr.Blocks() as demo:
     gr.Markdown("# Personalized News Agent")
     with gr.Row():
         with gr.Column():
-            gr.Markdown("**Agent Response:**")
-            chat_out = gr.Markdown(label="Agent Response")
-        with gr.Column():
             gr.Markdown("**Nodes visited:**")
             nodos_out = gr.Markdown(label="Nodes visited")
-    # intereses_out = gr.Textbox(label="Show interests", interactive=False)
+        with gr.Column():
+            gr.Markdown("**News filter:**")
+            news_out = gr.Markdown(label="News Headlines")
+        with gr.Column():
+            gr.Markdown("**Agent Response:**")
+            chat_out = gr.Markdown(label="Agent Response")
     chat_in = gr.Textbox(lines=2, placeholder="Type a command: Add something to my interests, Show me news...", label='')
-    with gr.Row():
-        send_btn = gr.Button("Send", variant='primary')
-        # intereses_btn = gr.Button("Show intereses")
+    send_btn = gr.Button("Send", variant='primary')
 
-    send_btn.click(chat_interface_stream, inputs=chat_in, outputs=[nodos_out, chat_out])
-    # intereses_btn.click(mostrar_intereses, outputs=intereses_out)
+    send_btn.click(chat_interface_stream, inputs=chat_in, outputs=[nodos_out, chat_out, news_out])
 
 def launch():
     demo.launch()

@@ -110,78 +110,92 @@ def process_command_stream(message: str):
     state = add_visited_node(state, "parse_command")
     state = parse_command_node(llm)(state)
     visited = state.get("visited_nodes", []).copy()
-    yield "Procesando...", visited
+    yield "Procesando...", visited, ""
     action = state.get("action")
     if action == "store_interest":
         state = add_visited_node(state, "store_interest")
         state = tool_store_interest_node(state)
         visited = state.get("visited_nodes", []).copy()
-        yield "Guardando interés...", visited
+        yield "Guardando interés...", visited, ""
         state = add_visited_node(state, "final_output")
         output = state.get("result", "")
         visited = state.get("visited_nodes", []).copy()
-        yield output, visited
+        yield output, visited, ""
     elif action == "fetch_news":
         print("[DEBUG] Entrando en fetch_news")
         state = add_visited_node(state, "fetch_news")
         visited = state.get("visited_nodes", []).copy()
-        yield "Searching for news...", visited
+        yield "Searching for news...", visited, ""
         interests = load_interests()
         print(f"[DEBUG] Loaded interests: {interests}")
         news = fetch_news(page_size=10, language="en")
         print(f"[DEBUG] News fetched: {len(news)}")
         any_found = False
         accumulated = ""
+        news_matches = []
         def check_match(n):
-            match, _ = is_news_about_interest(llm, n, interests)
-            print(f"[DEBUG] News: {n['title']} - Match: {match}")
-            return (n, match)
+            match, match_content = is_news_about_interest(llm, n, interests)
+            # Extrae el interés concreto si hay match
+            matched_interests = []
+            if match:
+                for interest in interests:
+                    if interest.lower() in match_content:
+                        matched_interests.append(interest)
+            return (n, match, matched_interests)
         with ThreadPoolExecutor() as executor:
             results = list(executor.map(check_match, news))
-        for n, match in results:
-            if match and n["url"]:
+        # Construir bloque markdown de titulares
+        news_md = ""
+        for n, match, matched_interests in results:
+            if match:
                 any_found = True
+                match_str = f"✅ Match: {', '.join(matched_interests)}" if matched_interests else "✅ Match"
+            else:
+                match_str = "❌ No match"
+            news_md += f"- [{n['title']}]({n['url']})  \\{match_str}\n"
+        # Streaming de resúmenes solo para los que hacen match
+        for n, match, matched_interests in results:
+            if match and n["url"]:
                 summary = ""
-                print(f"[DEBUG] Summarizing news: {n['title']}")
                 summary_found = False
                 for partial in summarize_article_stream(llm, n["url"]):
                     if partial:
                         summary = partial
                         summary_found = True
                         formatted = f"**[{n['title']}]({n['url']})**\n\n**AI summarization:**\n{summary}\n\n"
-                        yield accumulated + formatted, visited + ["fetch_news"]
+                        yield accumulated + formatted, visited + ["fetch_news"], news_md
                 if not summary_found:
                     fallback = n["content"] or "(Summary not available)"
                     formatted = f"**[{n['title']}]({n['url']})**\n\n{fallback}\n\n*This is an extract provided by the news API. Full article could not be accessed for AI summarization.*\n\n"
-                    yield accumulated + formatted, visited + ["fetch_news"]
+                    yield accumulated + formatted, visited + ["fetch_news"], news_md
                 accumulated += formatted
         if not any_found:
             print("[DEBUG] No se encontraron noticias relevantes para los intereses.")
-            yield "There is no news for your current interests.", visited + ["fetch_news"]
+            yield "There is no news for your current interests.", visited + ["fetch_news"], news_md
         state = add_visited_node(state, "final_output")
         output = state.get("result", "")
         visited = state.get("visited_nodes", []).copy()
-        yield output, visited
+        yield output, visited, news_md
     elif action == "list_interests":
         state = add_visited_node(state, "list_interests")
         state = tool_list_interests_node(state)
         visited = state.get("visited_nodes", []).copy()
-        yield "Listando intereses...", visited
+        yield "Listando intereses...", visited, ""
         state = add_visited_node(state, "final_output")
         output = state.get("result", "")
         visited = state.get("visited_nodes", []).copy()
-        yield output, visited
+        yield output, visited, ""
     elif action == "remove_interest":
         state = add_visited_node(state, "remove_interest")
         state = tool_remove_interest_node(state)
         visited = state.get("visited_nodes", []).copy()
-        yield "Eliminando interés...", visited
+        yield "Eliminando interés...", visited, ""
         state = add_visited_node(state, "final_output")
         output = state.get("result", "")
         visited = state.get("visited_nodes", []).copy()
-        yield output, visited
+        yield output, visited, ""
     else:
         state = add_visited_node(state, "final_output")
         output = state.get("result", "")
         visited = state.get("visited_nodes", []).copy()
-        yield output, visited
+        yield output, visited, ""
