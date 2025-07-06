@@ -122,15 +122,19 @@ def process_command_stream(message: str):
         visited = state.get("visited_nodes", []).copy()
         yield output, visited
     elif action == "fetch_news":
+        print("[DEBUG] Entrando en fetch_news")
         state = add_visited_node(state, "fetch_news")
         visited = state.get("visited_nodes", []).copy()
-        yield "Buscando noticias...", visited
+        yield "Searching for news...", visited
         interests = load_interests()
+        print(f"[DEBUG] Loaded interests: {interests}")
         news = fetch_news(page_size=10, language="en")
+        print(f"[DEBUG] News fetched: {len(news)}")
         any_found = False
         accumulated = ""
         def check_match(n):
             match, _ = is_news_about_interest(llm, n, interests)
+            print(f"[DEBUG] News: {n['title']} - Match: {match}")
             return (n, match)
         with ThreadPoolExecutor() as executor:
             results = list(executor.map(check_match, news))
@@ -138,14 +142,21 @@ def process_command_stream(message: str):
             if match and n["url"]:
                 any_found = True
                 summary = ""
+                print(f"[DEBUG] Summarizing news: {n['title']}")
+                summary_found = False
                 for partial in summarize_article_stream(llm, n["url"]):
                     if partial:
                         summary = partial
-                        formatted = f"**[{n['title']}]({n['url']})**\n{summary}\n\n"
+                        summary_found = True
+                        formatted = f"**[{n['title']}]({n['url']})**\n\n**AI summarization:**\n{summary}\n\n"
                         yield accumulated + formatted, visited + ["fetch_news"]
-                formatted = f"**[{n['title']}]({n['url']})**\n{summary}\n\n"
+                if not summary_found:
+                    fallback = n["content"] or "(Summary not available)"
+                    formatted = f"**[{n['title']}]({n['url']})**\n\n{fallback}\n\n*This is an extract provided by the news API. Full article could not be accessed for AI summarization.*\n\n"
+                    yield accumulated + formatted, visited + ["fetch_news"]
                 accumulated += formatted
         if not any_found:
+            print("[DEBUG] No se encontraron noticias relevantes para los intereses.")
             yield "There is no news for your current interests.", visited + ["fetch_news"]
         state = add_visited_node(state, "final_output")
         output = state.get("result", "")

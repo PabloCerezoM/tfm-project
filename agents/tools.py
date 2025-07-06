@@ -34,17 +34,18 @@ def summarize_article_stream(llm, url) -> Generator[str, None, None]:
             yield None
             return
         prompt = [
-            # {"role": "system", "content": "Summarize the following news article in 2-3 sentences:"},
             {"role": "user", "content": f"Summarize the following news article in 2-3 sentences, and only output the summary:\n{text}"},
         ]
         stream = llm.stream(prompt)
         summary = ""
         for chunk in stream:
             token = getattr(chunk, 'content', None)
+            print(f"[DEBUG] Token recibido del LLM: {token}")
             if token:
                 summary += token
                 yield summary
-    except Exception:
+    except Exception as e:
+        print(f"[DEBUG] Error en summarize_article_stream: {e}")
         yield None
 
 def tool_store_interest_node(state: State) -> State:
