@@ -47,15 +47,38 @@ def build_tools_filter_news_node(llm):
     def node(state: State) -> State:
         interests = load_interests()
         
+        original_news = state.get("news", [])
+        
+        if not interests:
+            # If no interests are set, mark all news as no match
+            all_news_with_matches = []
+            for n in original_news:
+                n_copy = n.copy()
+                n_copy["matched_interests"] = False
+                n_copy["match_reason"] = "No user interests configured"
+                all_news_with_matches.append(n_copy)
+            
+            state["all_news_filtered"] = all_news_with_matches
+            state["news"] = []  # No news matches since no interests
+            return state
+        
         def check_match(n):
-            match, _ = is_news_about_interest(llm, n, interests)
-            return (n, match)
+            match, reason = is_news_about_interest(llm, n, interests)
+            n_copy = n.copy()
+            n_copy["matched_interests"] = match
+            n_copy["match_reason"] = reason if match else "No match with user interests"
+            return n_copy
         
         with ThreadPoolExecutor() as executor:
-            news = list(executor.map(check_match, state.get("news", [])))
+            all_news_with_matches = list(executor.map(check_match, original_news))
         
-        filtered_news = [n for n, match in news if (match and n["url"])]
+        # Store all news with match information for the news filter display
+        state["all_news_filtered"] = all_news_with_matches
+        
+        # Keep only matched news for further processing
+        filtered_news = [n for n in all_news_with_matches if (n["matched_interests"] and n["url"])]
         state["news"] = filtered_news
+        
         return state
 
     return node
@@ -73,7 +96,6 @@ def download_article(url):
         article.parse()
         return article.text
     except Exception as e:
-        print(f"[DEBUG] Error downloading article: {e}")
         return None
 
 
@@ -97,7 +119,7 @@ def summarize_article_stream(llm, text) -> Generator[str, None, None]:
         prompt = [
             {
                 "role": "user",
-                "content": f"Summarize the following news article in 2-3 sentences, and only output the summary:\n{text}"
+                "content": f"Summarize the following news article in 3-4 sentences, and only output the summary:\n{text}"
             },
         ]
         stream = llm.stream(prompt)
@@ -114,18 +136,34 @@ def build_summarize_node(llm):
     """Build a node that summarizes articles with streaming output."""
     def node(state: State):
         writer = get_stream_writer()
-        for news_idx, n in enumerate(state.get("news", [])):
+        completed_summaries = []
+        news_list = state.get("news", [])
+        total_articles = len(news_list)
+        
+        for news_idx, n in enumerate(news_list):
             if not n.get("content"):
                 print(f"[DEBUG] No content for news item {news_idx}: {n['title']}")
+                n["summary"] = "Content not available for summary"
+                completed_summaries.append(n)
+                # Send partial update with total count
+                writer({"partial_summaries": (news_idx, completed_summaries.copy(), total_articles)})
                 continue
 
             summary = ""
             for token in summarize_article_stream(llm, n["content"]):
                 if token is None:
                     continue
-                writer({"partial_summaries": (news_idx, token)})
                 summary += token
+                # Send partial summary for current article
+                current_partial = n.copy()
+                current_partial["summary"] = summary + "..."
+                temp_summaries = completed_summaries + [current_partial]
+                writer({"partial_summaries": (news_idx, temp_summaries, total_articles)})
+            
             n["summary"] = summary
+            completed_summaries.append(n)
+            # Send completed summary with total count
+            writer({"partial_summaries": (news_idx, completed_summaries.copy(), total_articles)})
 
         return state
 
