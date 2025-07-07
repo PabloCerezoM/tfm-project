@@ -1,10 +1,6 @@
 import gradio as gr
-from agents.agent_graph import process_command, process_command_stream
+from agents.agent_graph import process_command_stream
 from services.memory import load_interests
-
-def chat_interface(message):
-    result = process_command(message)
-    return result["output"]
 
 # Modificada para devolver también los nodos visitados y titulares
 # El nuevo output será: nodos, respuesta, titulares filtrados

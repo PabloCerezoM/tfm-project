@@ -4,6 +4,6 @@ class State(TypedDict, total=False):
     user_input: str
     action: str
     interest: str
-    result: str
-    output: str
+    news: List[dict]
+    result: Optional[str]
     visited_nodes: List[str]
