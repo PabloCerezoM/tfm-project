@@ -4,7 +4,6 @@ FROM python:3.11-slim
 # Establece el directorio de trabajo
 WORKDIR /app
 
-# Copia los archivos del proyecto
 COPY . /app
 
 # Instala las dependencias

@@ -1,4 +1,6 @@
 import os
+import json
+
 from dotenv import load_dotenv
 from typing import Callable
 from langchain_openai import ChatOpenAI
@@ -7,14 +9,13 @@ from agents.state_types import State
 from agents.command_parser import parse_command_node
 from agents.tools import (
     tool_store_interest_node, 
-    tool_fetch_news_node, 
+    fetch_news_node,
+    build_tools_filter_news_node,
     tool_list_interests_node, 
     tool_remove_interest_node,
-    summarize_article_stream
+    scrape_content_node,
+    build_summarize_node,
 )
-from services.news import fetch_news
-from agents.tools import is_news_about_interest, summarize_article_stream
-from concurrent.futures import ThreadPoolExecutor
 
 def add_visited_node(state: State, node_name: str) -> State:
     if "visited_nodes" not in state or state["visited_nodes"] is None:
@@ -28,7 +29,11 @@ def make_node(fn: Callable[[State], State], node_name: str) -> Callable[[State],
         return fn(state)
     return wrapped
 
-load_dotenv()
+def unknown_command_node(state: State) -> State:
+    """Handle unrecognized commands with a friendly error message."""
+    state["result"] = "Command not recognized. Please try another request."
+    return state
+
 API_KEY = os.environ.get("API_KEY")
 SERVER_URL = os.environ.get("SERVER_URL")
 MODEL_ID = os.environ.get("MODEL_ID")
@@ -48,11 +53,11 @@ graph.add_node("parse_command", make_node(parse_command_node(llm), "parse_comman
 graph.add_node("list_interests", make_node(tool_list_interests_node, "list_interests"))
 graph.add_node("remove_interest", make_node(tool_remove_interest_node, "remove_interest"))
 graph.add_node("store_interest", make_node(tool_store_interest_node, "store_interest"))
-graph.add_node("fetch_news", make_node(tool_fetch_news_node(llm), "fetch_news"))
-graph.add_node("final_output", make_node(lambda state: {
-    "output": state.get("result", "Error"),
-    "visited_nodes": state.get("visited_nodes", [])
-}, "final_output"))
+graph.add_node("fetch_news", make_node(fetch_news_node, "fetch_news"))
+graph.add_node("filter_news", make_node(build_tools_filter_news_node(llm), "filter_news"))
+graph.add_node("scrape_content", make_node(scrape_content_node, "scrape_content"))
+graph.add_node("summarize", make_node(build_summarize_node(llm), "summarize"))
+graph.add_node("unknown_command", make_node(unknown_command_node, "unknown_command"))
 
 def route_action(state: State) -> str:
     action = state.get("action")
@@ -65,8 +70,7 @@ def route_action(state: State) -> str:
     elif action == "remove_interest":
         return "remove_interest"
     else:
-        state["result"] = "Sorry, I didn't understand the command. Please try again."
-        return "final_output"
+        return "unknown_command"
 
 graph.add_conditional_edges(
     "parse_command",
@@ -75,127 +79,157 @@ graph.add_conditional_edges(
         "store_interest": "store_interest",
         "fetch_news": "fetch_news",
         "list_interests": "list_interests",
-        "remove_interest": "remove_interest",  
-        "final_output": "final_output",
+        "remove_interest": "remove_interest",
+        "unknown_command": "unknown_command",
     },
 )
-graph.add_edge("store_interest", "final_output")
-graph.add_edge("fetch_news", "final_output")
-graph.add_edge("list_interests", "final_output")
-graph.add_edge("remove_interest", "final_output")
-graph.add_edge("final_output", END)
+graph.add_edge("store_interest", END)
+graph.add_edge("fetch_news", "filter_news")
+graph.add_edge("filter_news", "scrape_content")
+graph.add_edge("scrape_content", "summarize")
+graph.add_edge("summarize", END)
+graph.add_edge("list_interests", END)
+graph.add_edge("remove_interest", END)
+graph.add_edge("unknown_command", END)
+
 graph.set_entry_point("parse_command")
 
 my_graph = graph.compile()
 
-def process_command(message: str) -> State:
-    inputs: State = {"user_input": message}
-    result = my_graph.invoke(inputs)
-    return result
-
 def process_command_stream(message: str):
     """
-    Si la acción es fetch_news, hace streaming de los resúmenes de noticias.
-    Para el resto de acciones, devuelve solo el resultado final.
+    Process a user command and stream events from the graph.
+    Returns tuples compatible with Gradio interface: (partial_response, visited_nodes, news_info, summaries_info)
     """
-    from agents.command_parser import parse_command_node
-    from agents.tools import tool_store_interest_node, tool_fetch_news_node, tool_list_interests_node, tool_remove_interest_node, summarize_article_stream, is_news_about_interest
-    from services.memory import load_interests
-    from services.news import fetch_news
-    from concurrent.futures import ThreadPoolExecutor
-
     inputs: State = {"user_input": message}
-    state = inputs
-    # Paso 1: parse_command
-    state = add_visited_node(state, "parse_command")
-    state = parse_command_node(llm)(state)
-    visited = state.get("visited_nodes", []).copy()
-    yield "Procesando...", visited, ""
-    action = state.get("action")
-    if action == "store_interest":
-        state = add_visited_node(state, "store_interest")
-        state = tool_store_interest_node(state)
-        visited = state.get("visited_nodes", []).copy()
-        yield "Guardando interés...", visited, ""
-        state = add_visited_node(state, "final_output")
-        output = state.get("result", "")
-        visited = state.get("visited_nodes", []).copy()
-        yield output, visited, ""
-    elif action == "fetch_news":
-        print("[DEBUG] Entrando en fetch_news")
-        state = add_visited_node(state, "fetch_news")
-        visited = state.get("visited_nodes", []).copy()
-        yield "Searching for news...", visited, ""
-        interests = load_interests()
-        print(f"[DEBUG] Loaded interests: {interests}")
-        news = fetch_news(page_size=10, language="en")
-        print(f"[DEBUG] News fetched: {len(news)}")
-        any_found = False
-        accumulated = ""
-        news_matches = []
-        def check_match(n):
-            match, match_content = is_news_about_interest(llm, n, interests)
-            # Extrae el interés concreto si hay match
-            matched_interests = []
-            if match:
-                for interest in interests:
-                    if interest.lower() in match_content:
-                        matched_interests.append(interest)
-            return (n, match, matched_interests)
-        with ThreadPoolExecutor() as executor:
-            results = list(executor.map(check_match, news))
-        # Construir bloque markdown de titulares
-        news_md = ""
-        for n, match, matched_interests in results:
-            if match:
-                any_found = True
-                match_str = f"✅ Match: {', '.join(matched_interests)}" if matched_interests else "✅ Match"
-            else:
-                match_str = "❌ No match"
-            news_md += f"- [{n['title']}]({n['url']})  \\{match_str}\n"
-        # Streaming de resúmenes solo para los que hacen match
-        for n, match, matched_interests in results:
-            if match and n["url"]:
-                summary = ""
-                summary_found = False
-                for partial in summarize_article_stream(llm, n["url"]):
-                    if partial:
-                        summary = partial
-                        summary_found = True
-                        formatted = f"**[{n['title']}]({n['url']})**\n\n**AI summarization:**\n{summary}\n\n"
-                        yield accumulated + formatted, visited + ["fetch_news"], news_md
-                if not summary_found:
-                    fallback = n["content"] or "(Summary not available)"
-                    formatted = f"**[{n['title']}]({n['url']})**\n\n{fallback}\n\n*This is an extract provided by the news API. Full article could not be accessed for AI summarization.*\n\n"
-                    yield accumulated + formatted, visited + ["fetch_news"], news_md
-                accumulated += formatted
-        if not any_found:
-            print("[DEBUG] No se encontraron noticias relevantes para los intereses.")
-            yield "There is no news for your current interests.", visited + ["fetch_news"], news_md
-        state = add_visited_node(state, "final_output")
-        output = state.get("result", "")
-        visited = state.get("visited_nodes", []).copy()
-        yield output, visited, news_md
-    elif action == "list_interests":
-        state = add_visited_node(state, "list_interests")
-        state = tool_list_interests_node(state)
-        visited = state.get("visited_nodes", []).copy()
-        yield "Listando intereses...", visited, ""
-        state = add_visited_node(state, "final_output")
-        output = state.get("result", "")
-        visited = state.get("visited_nodes", []).copy()
-        yield output, visited, ""
-    elif action == "remove_interest":
-        state = add_visited_node(state, "remove_interest")
-        state = tool_remove_interest_node(state)
-        visited = state.get("visited_nodes", []).copy()
-        yield "Eliminando interés...", visited, ""
-        state = add_visited_node(state, "final_output")
-        output = state.get("result", "")
-        visited = state.get("visited_nodes", []).copy()
-        yield output, visited, ""
-    else:
-        state = add_visited_node(state, "final_output")
-        output = state.get("result", "")
-        visited = state.get("visited_nodes", []).copy()
-        yield output, visited, ""
+    last_state = None
+    last_response = ""
+    filter_news_info = ""  # Separate variable to preserve filter info
+    current_summaries = []
+    
+    for event_type, value in my_graph.stream(inputs, stream_mode=["values", "custom"]):  
+        if event_type == "values":
+            last_state = value  # Store the last state
+            visited_nodes = value.get("visited_nodes", [])
+            last_node = visited_nodes[-1] if visited_nodes else None
+            
+            # Update response based on current state
+            if "result" in value and value["result"]:
+                last_response = value["result"]
+            
+            # Handle specific node responses
+            if last_node == "filter_news":
+                # Extract filter info from current state's all_news_filtered
+                if "all_news_filtered" in value and value["all_news_filtered"]:
+                    all_news = value["all_news_filtered"]
+                    filter_info = []
+                    matched_count = 0
+                    for n in all_news:
+                        title = n.get('title', 'No title')
+                        match_status = "✅ MATCH" if n.get("matched_interests") else "❌ NO MATCH"
+                        if n.get("matched_interests"):
+                            matched_count += 1
+                        filter_info.append(f"{match_status}: {title}\n")
+                    
+                    filter_news_info = "\n".join(filter_info)
+                    last_response = f"Filtered {len(all_news)} news articles. {matched_count} matched your interests."
+                else:
+                    if not filter_news_info:  # Only set if not already set above
+                        filter_news_info = "No news articles were processed."
+                        last_response = "No news articles found to filter."
+                    
+            elif last_node == "summarize":
+                # Show all completed summaries
+                news = value.get("news", [])
+                if news:
+                    summaries = []
+                    for n in news:
+                        title = n.get('title', 'No title')
+                        source = n.get('source', 'Unknown source')
+                        url = n.get('url', '')
+                        summary = n.get('summary', 'No summary available')
+                        
+                        # Format: Title and source with link, then line break, then summary
+                        summary_text = f"**{title}**\n"
+                        if url:
+                            summary_text += f"*{source}* - [Link to article]({url})\n\n"
+                        else:
+                            summary_text += f"*{source}*\n\n"
+                        summary_text += f"{summary}\n"
+                        
+                        summaries.append(summary_text)
+                    current_summaries = summaries
+                    last_response = f"✅ Completed summaries for {len(news)} news articles"
+                    
+            elif last_node == "store_interest":
+                last_response = value.get("result", "Interest stored successfully")
+                
+            elif last_node == "list_interests":
+                last_response = value.get("result", "Listed interests")
+                
+            elif last_node == "remove_interest":
+                last_response = value.get("result", "Interest removed")
+                
+            elif last_node == "unknown_command":
+                last_response = value.get("result", "Command not recognized. Please try another request.")
+            
+            yield (last_response, visited_nodes, filter_news_info, "")
+            
+        else:
+            # Handle partial summaries during streaming - token by token
+            partial_data = value.get("partial_summaries", (None, None, None))
+            if partial_data[1] and isinstance(partial_data[1], list):  # List of partial summaries
+                summaries = []
+                for i, n in enumerate(partial_data[1]):
+                    title = n.get('title', 'No title')
+                    source = n.get('source', 'Unknown source')
+                    url = n.get('url', '')
+                    summary = n.get('summary', 'Generating...')
+                    
+                    # Format: Title and source with link, then line break, then summary
+                    summary_text = f"**{title}**\n"
+                    if url:
+                        summary_text += f"*{source}* - [Link to article]({url})\n\n"
+                    else:
+                        summary_text += f"*{source}*\n\n"
+                    summary_text += f"{summary}\n"
+                    
+                    summaries.append(summary_text)
+                
+                current_summaries = summaries
+                article_idx = partial_data[0]
+                total_articles = partial_data[2] if len(partial_data) > 2 else len(partial_data[1])
+                # Send real-time token updates
+                yield (f"📝 Generating summaries... (Article {article_idx + 1}/{total_articles})", 
+                      last_state.get("visited_nodes", []) if last_state else [], 
+                      filter_news_info,
+                      "\n".join(current_summaries))  # Send current summaries with each token
+
+    # Final yield with complete state
+    if last_state:
+        final_response = last_state.get("result", last_response)
+        # Use current_summaries for final display if available
+        final_summaries_display = "\n".join(current_summaries) if current_summaries else ""
+        yield (final_response, last_state.get("visited_nodes", []), filter_news_info, final_summaries_display)
+
+def main():
+    """
+    Test function for debugging the agent graph.
+    This function is kept for testing purposes but not used as main entry point.
+    """
+    load_dotenv()
+    print("🧪 Testing filter news display...")
+    for partial_response, visited_nodes, news_info, summaries_info in process_command_stream("Show me the news"):
+        print("=" * 50)
+        print(f"Visited Nodes: {' → '.join(visited_nodes) if visited_nodes else 'None'}")
+        print(f"Response: {partial_response}")
+        if news_info:
+            print(f"News Filter Info (length {len(news_info)}):\n{news_info[:300]}{'...' if len(news_info) > 300 else ''}")
+        else:
+            print("News Filter Info: EMPTY")
+        if summaries_info:
+            print(f"Summaries Info:\n{summaries_info[:200]}{'...' if len(summaries_info) > 200 else ''}")
+        print("=" * 50)
+
+if __name__ == "__main__":
+    main()
