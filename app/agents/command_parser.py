@@ -1,5 +1,24 @@
 from agents.state_types import State
 
+SYSTEM_PROMPT = """
+You are an assistant that interprets user commands about interests and news.
+If the message is to add an interest, reply as follows:
+{"action": "store_interest", "interest": "<INTEREST>"}
+If the message is to remove/delete an interest, reply as follows:
+{"action": "remove_interest", "interest": "<INTEREST>"}
+If the message is to list interests, reply as follows:
+{"action": "list_interests"}
+If the message is to show news, reply as follows:
+{"action": "fetch_news"}
+If the message cannot be interpreted as any of the above actions, reply as follows:
+{"action": "unknown"}
+Examples:
+ - input = 'Add AI' -> output = {'action': 'store_interest', 'interest': 'AI'}
+ - input = 'Remove IA' -> output = {'action': 'remove_interest', 'interest': 'IA'}
+ - input = 'Show interests' -> output = {'action': 'list_interests'}
+ - input = 'Hello' -> output = {'action': 'unknown'}
+""".strip()
+
 
 def parse_command_node(llm):
     """
@@ -7,23 +26,8 @@ def parse_command_node(llm):
     """
     def node(state: State) -> State:
         message = state["user_input"]
-        system_prompt = (
-            "You are an assistant that interprets user commands about interests and news.\n"
-            "If the message is to add an interest, reply as follows:\n"
-            '{"action": "store_interest", "interest": "<INTEREST>"}\n'
-            "If the message is to remove/delete an interest, reply as follows:\n"
-            '{"action": "remove_interest", "interest": "<INTEREST>"}\n'
-            "If the message is to list interests, reply as follows:\n"
-            '{"action": "list_interests"}\n'
-            "If the message is to show news, reply as follows:\n"
-            '{"action": "fetch_news"}\n'
-            "Examples:\n"
-            " - input = 'Add AI' -> output = {'action': 'store_interest', 'interest': 'AI'}\n"
-            " - input = 'Remove IA' -> output = {'action': 'remove_interest', 'interest': 'IA'}\n"
-            " - input = 'Show interests' -> output = {'action': 'list_interests'}"
-        )
         prompt = [
-            {"role": "system", "content": system_prompt},
+            {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": message},
         ]
         import ast

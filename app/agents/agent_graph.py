@@ -29,6 +29,11 @@ def make_node(fn: Callable[[State], State], node_name: str) -> Callable[[State],
         return fn(state)
     return wrapped
 
+def unknown_command_node(state: State) -> State:
+    """Handle unrecognized commands with a friendly error message."""
+    state["result"] = "Command not recognized. Please try another request."
+    return state
+
 API_KEY = os.environ.get("API_KEY")
 SERVER_URL = os.environ.get("SERVER_URL")
 MODEL_ID = os.environ.get("MODEL_ID")
@@ -52,6 +57,7 @@ graph.add_node("fetch_news", make_node(fetch_news_node, "fetch_news"))
 graph.add_node("filter_news", make_node(build_tools_filter_news_node(llm), "filter_news"))
 graph.add_node("scrape_content", make_node(scrape_content_node, "scrape_content"))
 graph.add_node("summarize", make_node(build_summarize_node(llm), "summarize"))
+graph.add_node("unknown_command", make_node(unknown_command_node, "unknown_command"))
 
 def route_action(state: State) -> str:
     action = state.get("action")
@@ -64,8 +70,7 @@ def route_action(state: State) -> str:
     elif action == "remove_interest":
         return "remove_interest"
     else:
-        state["result"] = "Sorry, I didn't understand the command. Please try again."
-        return "END"
+        return "unknown_command"
 
 graph.add_conditional_edges(
     "parse_command",
@@ -74,8 +79,8 @@ graph.add_conditional_edges(
         "store_interest": "store_interest",
         "fetch_news": "fetch_news",
         "list_interests": "list_interests",
-        "remove_interest": "remove_interest",  
-        "final_output": END,  # This is a catch-all for unrecognized actions
+        "remove_interest": "remove_interest",
+        "unknown_command": "unknown_command",
     },
 )
 graph.add_edge("store_interest", END)
@@ -85,6 +90,7 @@ graph.add_edge("scrape_content", "summarize")
 graph.add_edge("summarize", END)
 graph.add_edge("list_interests", END)
 graph.add_edge("remove_interest", END)
+graph.add_edge("unknown_command", END)
 
 graph.set_entry_point("parse_command")
 
@@ -163,6 +169,9 @@ def process_command_stream(message: str):
                 
             elif last_node == "remove_interest":
                 last_response = value.get("result", "Interest removed")
+                
+            elif last_node == "unknown_command":
+                last_response = value.get("result", "Command not recognized. Please try another request.")
             
             yield (last_response, visited_nodes, filter_news_info, "")
             
