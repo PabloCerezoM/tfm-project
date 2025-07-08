@@ -8,7 +8,6 @@ def chat_interface_stream(message):
     last_nodos = ""
     last_filter_info = ""
     last_summaries = ""
-    print(message)
     for partial, visited, news_info, summaries_info in process_command_stream(message):
         # Format nodes as a single line separated by arrows
         if visited:
