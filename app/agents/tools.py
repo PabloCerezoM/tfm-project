@@ -199,11 +199,13 @@ def tool_remove_interest_node(state: State) -> State:
     """Remove an interest from the user's interest list."""
     interest = state.get("interest")
     if interest:
+        interests_before = load_interests()
         removed = remove_interest(interest)
         if removed:
-            state["result"] = f"Interest '{interest}' removed. Current interests: {load_interests()}"
+            interests_after = load_interests()
+            state["result"] = f"Interest '{interest}' removed. Current interests: {interests_after}"
         else:
-            state["result"] = f"Interest '{interest}' not found in your current interests."
+            state["result"] = f"Interest '{interest}' not found in your current interests: {interests_before}"
     else:
         state["result"] = "No interest detected to remove."
     return state
